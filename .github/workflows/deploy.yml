@@ -1,0 +1,56 @@
+name: 'Terraform'
+
+#on: [push]
+
+env:
+  TF_LOG: INFO
+
+jobs:
+  terraform:
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.0.0
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        id: init
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: terraform init
+
+      - name: Terraform Apply
+        if: github.event_name == 'push'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: terraform apply -auto-approve
+
+      - name: Get EC2 instance IP
+        id: ec2_ip
+        run: echo "instance_ip=$(terraform output -raw instance_ip)" >> $GITHUB_ENV
+
+      - name: Wait for EC2 instance to be ready
+        run: |
+          sleep 60 # Give some time for the instance to be fully initialized
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+
+      - name: Install Ansible
+        run: pip install ansible
+
+      - name: Configure EC2 with Ansible
+        run: |
+          echo "[node_app]" > inventory
+          echo "${{ env.instance_ip }}" >> inventory
+          ansible-playbook -i inventory ansible/playbook.yml --private-key /path/to/private/key -u ec2-user
